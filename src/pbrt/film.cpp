@@ -628,8 +628,8 @@ void GBufferFilm::AddSample(Point2i pFilm, SampledSpectrum L,
             Point3f pos = outputFromRender(visibleSurface->p, visibleSurface->time);
             Normal3f normal = outputFromRender(visibleSurface->n, visibleSurface->time);
 
-            p.pSum += weight * outputFromRender(visibleSurface->p, visibleSurface->time);
-            p.nSum += weight * outputFromRender(visibleSurface->n, visibleSurface->time);
+            p.pSum += weight * pos;
+            p.nSum += weight * normal;
             p.nsSum +=
                 weight * outputFromRender(visibleSurface->ns, visibleSurface->time);
             p.dzdxSum +=
