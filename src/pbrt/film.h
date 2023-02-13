@@ -384,6 +384,10 @@ class GBufferFilm : public FilmBase {
         Point2f uvSum;
         double rgbAlbedoSum[3] = {0., 0., 0.};
         VarianceEstimator<Float> rgbVariance[3];
+        VarianceEstimator<Float> albedoVariance[3];
+        VarianceEstimator<Float> normalVariance[3];
+        VarianceEstimator<Float> positionVariance[3];
+        VarianceEstimator<Float> depthVariance[1];
     };
 
     // GBufferFilm Private Members

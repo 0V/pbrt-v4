@@ -597,15 +597,14 @@ void GBufferFilm::AddSample(Point2i pFilm, SampledSpectrum L,
     if (visibleSurface && *visibleSurface) {
         p.gBufferWeightSum += weight;
 
-        // Update variance estimates.
-        for (int c = 0; c < 3; ++c)
-            p.rgbVariance[c].Add(rgb[c]);
-
         if (applyInverse) {
-            p.pSum += weight * outputFromRender.ApplyInverse(visibleSurface->p,
-                                                             visibleSurface->time);
-            p.nSum += weight * outputFromRender.ApplyInverse(visibleSurface->n,
-                                                             visibleSurface->time);
+            Point3f pos =
+                outputFromRender.ApplyInverse(visibleSurface->p, visibleSurface->time);
+            Normal3f normal =
+                outputFromRender.ApplyInverse(visibleSurface->n, visibleSurface->time);
+
+            p.pSum += weight * pos;
+            p.nSum += weight * normal;
             p.nsSum += weight * outputFromRender.ApplyInverse(visibleSurface->ns,
                                                               visibleSurface->time);
             p.dzdxSum +=
@@ -616,7 +615,19 @@ void GBufferFilm::AddSample(Point2i pFilm, SampledSpectrum L,
                 weight *
                 outputFromRender.ApplyInverse(visibleSurface->dpdy, visibleSurface->time)
                     .z;
+
+            // Update variance estimates.
+            for (int c = 0; c < 3; ++c) {
+                p.positionVariance[c].Add(pos[c]);
+                p.normalVariance[c].Add(normal[c]);
+            }
+            p.depthVariance[0].Add(
+                sqrtf(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]));
+
         } else {
+            Point3f pos = outputFromRender(visibleSurface->p, visibleSurface->time);
+            Normal3f normal = outputFromRender(visibleSurface->n, visibleSurface->time);
+
             p.pSum += weight * outputFromRender(visibleSurface->p, visibleSurface->time);
             p.nSum += weight * outputFromRender(visibleSurface->n, visibleSurface->time);
             p.nsSum +=
@@ -625,6 +636,14 @@ void GBufferFilm::AddSample(Point2i pFilm, SampledSpectrum L,
                 weight * outputFromRender(visibleSurface->dpdx, visibleSurface->time).z;
             p.dzdySum +=
                 weight * outputFromRender(visibleSurface->dpdy, visibleSurface->time).z;
+
+            // Update variance estimates.
+            for (int c = 0; c < 3; ++c) {
+                p.positionVariance[c].Add(pos[c]);
+                p.normalVariance[c].Add(normal[c]);
+            }
+            p.depthVariance[0].Add(
+                sqrtf(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]));
         }
         p.uvSum += weight * visibleSurface->uv;
 
@@ -633,6 +652,12 @@ void GBufferFilm::AddSample(Point2i pFilm, SampledSpectrum L,
         RGB albedoRGB = albedo.ToRGB(lambda, *colorSpace);
         for (int c = 0; c < 3; ++c)
             p.rgbAlbedoSum[c] += weight * albedoRGB[c];
+
+        // Update variance estimates.
+        for (int c = 0; c < 3; ++c) {
+            p.rgbVariance[c].Add(rgb[c]);
+            p.albedoVariance[c].Add(albedo[c]);
+        }
     }
 
     for (int c = 0; c < 3; ++c)
@@ -714,7 +739,18 @@ Image GBufferFilm::GetImage(ImageMetadata *metadata, Float splatScale) {
                  "Variance.B",
                  "RelativeVariance.R",
                  "RelativeVariance.G",
-                 "RelativeVariance.B"});
+                 "RelativeVariance.B",
+                 "Variance.Albedo.R",
+                 "Variance.Albedo.G",
+                 "Variance.Albedo.B",
+                 "Variance.Px",
+                 "Variance.Py",
+                 "Variance.Pz",
+                 "Variance.Nx",
+                 "Variance.Ny",
+                 "Variance.Nz",
+                 "Depth",
+                 "Variance.Depth"});
 
     ImageChannelDesc rgbDesc = image.GetChannelDesc({"R", "G", "B"});
     ImageChannelDesc pDesc = image.GetChannelDesc({"Px", "Py", "Pz"});
@@ -728,6 +764,16 @@ Image GBufferFilm::GetImage(ImageMetadata *metadata, Float splatScale) {
         image.GetChannelDesc({"Variance.R", "Variance.G", "Variance.B"});
     ImageChannelDesc relVarianceDesc = image.GetChannelDesc(
         {"RelativeVariance.R", "RelativeVariance.G", "RelativeVariance.B"});
+
+    ImageChannelDesc varAlbedoRgbDesc = image.GetChannelDesc(
+        {"Variance.Albedo.R", "Variance.Albedo.G", "Variance.Albedo.B"});
+    ImageChannelDesc varPDesc =
+        image.GetChannelDesc({"Variance.Px", "Variance.Py", "Variance.Pz"});
+    ImageChannelDesc varNDesc =
+        image.GetChannelDesc({"Variance.Nx", "Variance.Ny", "Variance.Nz"});
+
+    ImageChannelDesc depthDesc = image.GetChannelDesc({"Depth"});
+    ImageChannelDesc varDepthDesc = image.GetChannelDesc({"Variance.Depth"});
 
     std::atomic<int> nClamped{0};
     ParallelFor2D(pixelBounds, [&](Point2i p) {
@@ -777,6 +823,9 @@ Image GBufferFilm::GetImage(ImageMetadata *metadata, Float splatScale) {
             LengthSquared(pixel.nSum) > 0 ? Normalize(pixel.nSum) : Normal3f(0, 0, 0);
         Normal3f ns =
             LengthSquared(pixel.nsSum) > 0 ? Normalize(pixel.nsSum) : Normal3f(0, 0, 0);
+
+        Float depth = sqrtf(pt.x * pt.x + pt.y * pt.y + pt.z * pt.z);
+
         image.SetChannels(pOffset, pDesc, {pt.x, pt.y, pt.z});
         image.SetChannels(pOffset, dzDesc, {std::abs(dzdx), std::abs(dzdy)});
         image.SetChannels(pOffset, nDesc, {n.x, n.y, n.z});
@@ -790,6 +839,20 @@ Image GBufferFilm::GetImage(ImageMetadata *metadata, Float splatScale) {
                           {pixel.rgbVariance[0].RelativeVariance(),
                            pixel.rgbVariance[1].RelativeVariance(),
                            pixel.rgbVariance[2].RelativeVariance()});
+        image.SetChannels(
+            pOffset, varAlbedoRgbDesc,
+            {pixel.albedoVariance[0].Variance(), pixel.albedoVariance[1].Variance(),
+             pixel.albedoVariance[2].Variance()});
+        image.SetChannels(
+            pOffset, varPDesc,
+            {pixel.positionVariance[0].Variance(), pixel.positionVariance[1].Variance(),
+             pixel.positionVariance[2].Variance()});
+        image.SetChannels(
+            pOffset, varNDesc,
+            {pixel.normalVariance[0].Variance(), pixel.normalVariance[1].Variance(),
+             pixel.normalVariance[2].Variance()});
+        image.SetChannels(pOffset, depthDesc, {depth});
+        image.SetChannels(pOffset, varDepthDesc, {pixel.depthVariance[0].Variance()});
     });
 
     if (nClamped.load() > 0)
