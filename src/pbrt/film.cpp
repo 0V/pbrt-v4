@@ -749,8 +749,18 @@ Image GBufferFilm::GetImage(ImageMetadata *metadata, Float splatScale) {
                  "Variance.Nx",
                  "Variance.Ny",
                  "Variance.Nz",
+                 "RelativeVariance.Albedo.R",
+                 "RelativeVariance.Albedo.G",
+                 "RelativeVariance.Albedo.B",
+                 "RelativeVariance.Px",
+                 "RelativeVariance.Py",
+                 "RelativeVariance.Pz",
+                 "RelativeVariance.Nx",
+                 "RelativeVariance.Ny",
+                 "RelativeVariance.Nz",
                  "Depth",
-                 "Variance.Depth"});
+                 "Variance.Depth",
+                 "RelativeVariance.Depth"});
 
     ImageChannelDesc rgbDesc = image.GetChannelDesc({"R", "G", "B"});
     ImageChannelDesc pDesc = image.GetChannelDesc({"Px", "Py", "Pz"});
@@ -772,8 +782,17 @@ Image GBufferFilm::GetImage(ImageMetadata *metadata, Float splatScale) {
     ImageChannelDesc varNDesc =
         image.GetChannelDesc({"Variance.Nx", "Variance.Ny", "Variance.Nz"});
 
+    ImageChannelDesc relVarAlbedoRgbDesc = image.GetChannelDesc(
+        {"RelativeVariance.Albedo.R", "RelativeVariance.Albedo.G", "RelativeVariance.Albedo.B"});
+    ImageChannelDesc relVarPDesc =
+        image.GetChannelDesc({"RelativeVariance.Px", "RelativeVariance.Py", "RelativeVariance.Pz"});
+    ImageChannelDesc relVarNDesc =
+        image.GetChannelDesc({"RelativeVariance.Nx", "RelativeVariance.Ny", "RelativeVariance.Nz"});
+
+
     ImageChannelDesc depthDesc = image.GetChannelDesc({"Depth"});
     ImageChannelDesc varDepthDesc = image.GetChannelDesc({"Variance.Depth"});
+    ImageChannelDesc relVarDepthDesc = image.GetChannelDesc({"RelativeVariance.Depth"});
 
     std::atomic<int> nClamped{0};
     ParallelFor2D(pixelBounds, [&](Point2i p) {
@@ -851,8 +870,22 @@ Image GBufferFilm::GetImage(ImageMetadata *metadata, Float splatScale) {
             pOffset, varNDesc,
             {pixel.normalVariance[0].Variance(), pixel.normalVariance[1].Variance(),
              pixel.normalVariance[2].Variance()});
+        image.SetChannels(
+            pOffset, relVarAlbedoRgbDesc,
+            {pixel.albedoVariance[0].RelativeVariance(), pixel.albedoVariance[1].RelativeVariance(),
+             pixel.albedoVariance[2].RelativeVariance()});
+        image.SetChannels(
+            pOffset, relVarPDesc,
+            {pixel.positionVariance[0].RelativeVariance(), pixel.positionVariance[1].RelativeVariance(),
+             pixel.positionVariance[2].RelativeVariance()});
+        image.SetChannels(
+            pOffset, relVarNDesc,
+            {pixel.normalVariance[0].RelativeVariance(), pixel.normalVariance[1].RelativeVariance(),
+             pixel.normalVariance[2].RelativeVariance()});
+
         image.SetChannels(pOffset, depthDesc, {depth});
         image.SetChannels(pOffset, varDepthDesc, {pixel.depthVariance[0].Variance()});
+        image.SetChannels(pOffset, relVarDepthDesc, {pixel.depthVariance[0].RelativeVariance()});
     });
 
     if (nClamped.load() > 0)
